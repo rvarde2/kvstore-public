@@ -42,6 +42,7 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
     let reader = BufReader::new(&stream);
     let mut lines = reader.lines();
     let mut response = String::new();
+    let mut modified: bool = false;
     while let Some(Ok(line)) = lines.next() {
         let parts: Vec<&str> = line.trim_end().splitn(3, ' ').collect();
         match parts[0] {
@@ -55,22 +56,48 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
             "SET" if parts.len() == 3 => {
                 let mut map = map.write().unwrap();
                 map.insert(parts[1].to_string(), parts[2].to_string());
+                
                 if !args.memonly {
+
+                    let file = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&args.logfile)
+                        .unwrap();
+                    let mut writer = std::io::LineWriter::new(file);
+                    writeln!(writer, "{}", line).unwrap();
+
+                    /*
                     if let Err(e) = map.save_to_file(&args.dbfile) {
                         eprintln!("Failed to save DB: {}", e);
                     }
+                    */
                 }
+                
+                modified = true;
                 response.push_str("OK\r\n");
             }
             "REMOVE" if parts.len() == 2 => {
                 let mut map = map.write().unwrap();
                 response.push_str(match map.remove(&parts[1].to_string()) {
                     Some(_) => {
+                        
                         if !args.memonly {
+                            let file = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(&args.logfile)
+                                .unwrap();
+                            let mut writer = std::io::LineWriter::new(file);
+                            writeln!(writer, "{}", line).unwrap();
+
+                            /*
                             if let Err(e) = map.save_to_file(&args.dbfile) {
                                 eprintln!("Failed to save DB: {}", e);
                             }
+                            */
                         }
+                        modified = true;
                         "OK\r\n"
                     }
                     None => "ERR NotFound\r\n",
@@ -84,6 +111,17 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
                 });
             }
             "ENDBATCH" => {
+                
+                if !args.memonly && modified {
+                /*
+                    let map = map.read().unwrap();
+                    if let Err(e) = map.save_to_file(&args.dbfile) {
+                        eprintln!("Failed to save DB: {}", e);
+                    }
+                */
+                    modified = false;
+                }
+
                 writer.write_all(response.as_bytes()).unwrap();
                 response=String::new();
             }            
