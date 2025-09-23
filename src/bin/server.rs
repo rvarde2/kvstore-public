@@ -43,6 +43,7 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
     let mut lines = reader.lines();
     let mut response = String::new();
     let mut modified: bool = false;
+    let mut log_batch: Vec<String> = Vec::new();
     while let Some(Ok(line)) = lines.next() {
         let parts: Vec<&str> = line.trim_end().splitn(3, ' ').collect();
         match parts[0] {
@@ -58,7 +59,9 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
                 map.insert(parts[1].to_string(), parts[2].to_string());
                 
                 if !args.memonly {
-
+                    
+                    log_batch.push(line);
+                    /*
                     let file = std::fs::OpenOptions::new()
                         .create(true)
                         .append(true)
@@ -66,7 +69,8 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
                         .unwrap();
                     let mut writer = std::io::LineWriter::new(file);
                     writeln!(writer, "{}", line).unwrap();
-
+                    */
+                    
                     /*
                     if let Err(e) = map.save_to_file(&args.dbfile) {
                         eprintln!("Failed to save DB: {}", e);
@@ -83,6 +87,9 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
                     Some(_) => {
                         
                         if !args.memonly {
+                            
+                            log_batch.push(line);
+                            /*
                             let file = std::fs::OpenOptions::new()
                                 .create(true)
                                 .append(true)
@@ -90,7 +97,8 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
                                 .unwrap();
                             let mut writer = std::io::LineWriter::new(file);
                             writeln!(writer, "{}", line).unwrap();
-
+                            */
+                            
                             /*
                             if let Err(e) = map.save_to_file(&args.dbfile) {
                                 eprintln!("Failed to save DB: {}", e);
@@ -112,6 +120,19 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
             }
             "ENDBATCH" => {
                 
+                if !args.memonly && !log_batch.is_empty() {
+                    let file = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&args.logfile)
+                        .unwrap();
+                    let mut file_writer = std::io::LineWriter::new(file);
+                    for command in &log_batch {
+                        writeln!(file_writer, "{}", command).unwrap();
+                    }
+                    log_batch.clear(); // Empty the vector for the next batch
+                }
+
                 if !args.memonly && modified {
                 /*
                     let map = map.read().unwrap();

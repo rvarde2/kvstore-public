@@ -15,7 +15,7 @@ BATCH_SIZES=($(seq 100 100 1000))
 TOTAL_OPS=10000
 EXIT_CODE="abc"
 DB_FILE="/tmp/temp.db"
-LOG_FILE="temp_logfile.txt"
+LOG_FILE="/tmp/temp_logfile.txt"
 THROUGHPUT_FILE="results_throughput.csv"
 DURATION_FILE="results_duration.csv"
 
