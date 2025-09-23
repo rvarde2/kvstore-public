@@ -7,6 +7,7 @@
 #   ./run_experiment.sh --graph-only (Graphs from CSVs in the current directory)
 #   ./run_experiment.sh --graph-only --path /path/to/results (Graphs from CSVs in a specific directory)
 #   ./run_experiment.sh --help       (Displays this usage information)
+#   ./run_experiment.sh --addr <IP:PORT> (Specify a custom address, e.g., 127.0.0.1:6000)
 
 # --- Default Experiment Parameters ---
 # These are used only when running new experiments.
@@ -18,6 +19,14 @@ DB_FILE="/tmp/temp.db"
 LOG_FILE="/tmp/temp_logfile.txt"
 THROUGHPUT_FILE="results_throughput.csv"
 DURATION_FILE="results_duration.csv"
+ADDR="127.0.0.1:5000"
+
+
+# --- CPU Core Assignments ---
+# Usually require sudo privileges to set CPU affinity. But seems to be working without it on nodes.
+# Use comma-separated list for multiple cores (e.g., "1,2,3"), if empty will not use taskset
+SERVER_CORES=""
+CLIENT_CORES=""
 
 
 # --- Function to run the full experiment suite ---
@@ -58,13 +67,21 @@ run_experiments() {
             # Clean up previous run's files to ensure a fresh start.
             rm -f $DB_FILE $LOG_FILE
 
-            # Start the server in the background.
-            ./target/release/server --dbfile $DB_FILE --logfile $LOG_FILE --exit-code $EXIT_CODE &> /dev/null &
+            # Start the server in the background, pinned to its cores if specified.
+            if [ -n "$SERVER_CORES" ]; then
+                taskset -c $SERVER_CORES ./target/release/server --dbfile $DB_FILE --logfile $LOG_FILE --addr $ADDR --exit-code $EXIT_CODE &> /dev/null &
+            else
+                ./target/release/server --dbfile $DB_FILE --logfile $LOG_FILE --addr $ADDR --exit-code $EXIT_CODE &> /dev/null &
+            fi
             SERVER_PID=$!
             sleep 2 # Give the server a moment to start.
 
-            # Run the benchmark client and capture its output.
-            CLIENT_OUTPUT=$(./target/release/benchmark --threads $THREADS --ops $OPS_PER_THREAD --batch-size $BATCH_SIZE --exit-code $EXIT_CODE)
+            # Run the benchmark client, pinned to its cores if specified, and capture its output.
+            if [ -n "$CLIENT_CORES" ]; then
+                CLIENT_OUTPUT=$(taskset -c $CLIENT_CORES ./target/release/benchmark --threads $THREADS --ops $OPS_PER_THREAD --batch-size $BATCH_SIZE --addr $ADDR --exit-code $EXIT_CODE)
+            else
+                CLIENT_OUTPUT=$(./target/release/benchmark --threads $THREADS --ops $OPS_PER_THREAD --batch-size $BATCH_SIZE --addr $ADDR --exit-code $EXIT_CODE)
+            fi
             wait $SERVER_PID # Wait for the server to shut down.
 
             # Extract the throughput and duration values from the client's output.
@@ -86,6 +103,8 @@ run_experiments() {
 
     echo "---------------------------------"
     echo "Experiment complete."
+    # Add a 2-second delay after the experiment: Cleanup
+    sleep 2
 }
 
 # --- Function to generate graphs from existing CSV files ---
@@ -157,8 +176,13 @@ while [[ $# -gt 0 ]]; do
         ;;
         --help)
         # Extract the usage instructions from the script's own comments.
-        grep -A 4 '^# USAGE:' "$0" | sed 's/^# //'
+        grep -A 5 '^# USAGE:' "$0" | sed 's/^# //'
         exit 0
+        ;;
+        --addr)
+        ADDR="$2"
+        shift 2
+        continue
         ;;
         *)    # unknown option
         shift # past argument
