@@ -20,7 +20,7 @@ LOG_FILE="/tmp/temp_logfile.txt"
 THROUGHPUT_FILE="results_throughput.csv"
 DURATION_FILE="results_duration.csv"
 ADDR="127.0.0.1:5000"
-
+TERMGRAPH="/CS463/$USER/.local/bin/termgraph"
 
 # --- CPU Core Assignments ---
 # Usually require sudo privileges to set CPU affinity. But seems to be working without it on nodes.
@@ -110,7 +110,7 @@ run_experiments() {
 # --- Function to generate graphs from existing CSV files ---
 generate_graphs() {
     # Check if termgraph is installed.
-    if ! termgraph --version &> /dev/null; then
+    if ! $TERMGRAPH --version &> /dev/null; then
         echo "termgraph not found. Skipping graph generation."
         echo "To install, run: pip3 install termgraph"
         exit 0
@@ -143,14 +143,14 @@ generate_graphs() {
 
     # Modify the header for termgraph and generate the throughput graph.
     sed '1s/batch_size,/@ /' "$THROUGHPUT_FILE" > "$TEMP_THROUGHPUT_FILE"
-    COMMAND_THROUGHPUT="termgraph '$TEMP_THROUGHPUT_FILE' --color {$COLOR_ARGS_STRING} --title 'Batch Size Vs Throughput'"
+    COMMAND_THROUGHPUT="$TERMGRAPH '$TEMP_THROUGHPUT_FILE' --color {$COLOR_ARGS_STRING} --title 'Batch Size Vs Throughput'"
     echo ""
     echo "--- Batch Size Vs Throughput ---"
     eval $COMMAND_THROUGHPUT
     
     # Modify the header for termgraph and generate the duration graph.
     sed '1s/batch_size,/@ /' "$DURATION_FILE" > "$TEMP_DURATION_FILE"
-    COMMAND_DURATION="termgraph '$TEMP_DURATION_FILE' --color {$COLOR_ARGS_STRING} --title 'Batch Size Vs Duration'"
+    COMMAND_DURATION="$TERMGRAPH '$TEMP_DURATION_FILE' --color {$COLOR_ARGS_STRING} --title 'Batch Size Vs Duration'"
     echo ""
     echo "--- Batch Size Vs Duration ---"
     eval $COMMAND_DURATION
