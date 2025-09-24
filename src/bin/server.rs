@@ -30,11 +30,14 @@ struct Args {
     #[arg(short, long, default_value = "kvstore.log")]
     logfile: String,
 
-
+    /// Snapshot-interval
+    #[arg(long, default_value_t = 10)]
+    snapshot_interval: u32,
 
     /// Pass this code to the server EXIT command to have it exit
     #[arg(short, long, default_value = "")]
     exit_code: String,    
+
 }
 
 fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<String, String>>>) {
@@ -44,6 +47,15 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
     let mut response = String::new();
     let mut modified: bool = false;
     let mut log_batch: Vec<String> = Vec::new();
+
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&args.logfile)
+        .unwrap();
+
+    let mut file_writer = std::io::LineWriter::new(file);
+    let mut req_since_snapshot: u32 = 0;
     while let Some(Ok(line)) = lines.next() {
         let parts: Vec<&str> = line.trim_end().splitn(3, ' ').collect();
         match parts[0] {
@@ -119,32 +131,49 @@ fn handle_client(args: Arc<Args>, stream: TcpStream, map: Arc<RwLock<TreeMap<Str
                 });
             }
             "ENDBATCH" => {
-                
                 if !args.memonly && !log_batch.is_empty() {
-                    let file = std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(&args.logfile)
-                        .unwrap();
-                    let mut file_writer = std::io::LineWriter::new(file);
+                    use std::io::Write;
                     for command in &log_batch {
                         writeln!(file_writer, "{}", command).unwrap();
+                        req_since_snapshot += 1;
                     }
                     log_batch.clear(); // Empty the vector for the next batch
                 }
 
-                if !args.memonly && modified {
-                /*
-                    let map = map.read().unwrap();
-                    if let Err(e) = map.save_to_file(&args.dbfile) {
-                        eprintln!("Failed to save DB: {}", e);
+                // Check if a snapshot (log compaction) is needed
+                if req_since_snapshot >= args.snapshot_interval {
+                    if !args.memonly {
+                        println!("Compacting log into snapshot...");
+
+                        // 1. Load the last snapshot from dbfile into a temporary map.
+                        let mut temp_map = match TreeMap::load_from_file(&args.dbfile) {
+                            Ok(m) => m,
+                            Err(_) => TreeMap::new(),
+                        };
+
+                        // 2. Apply the recent changes from the log file to the temporary map.
+                        let log_file_for_compaction = file_writer.get_ref();
+                        recover_from_log(&mut temp_map, log_file_for_compaction.try_clone().unwrap());
+
+                        // 3. Save the newly updated temporary map as the new snapshot.
+                        if let Err(e) = temp_map.save_to_file(&args.dbfile) {
+                            eprintln!("Failed to save compacted snapshot: {}", e);
+                        }
+                        
+                        // 4. Truncate the log file, as its changes are now in the snapshot.
+                        let log_file = file_writer.get_mut();
+                        log_file.set_len(0).unwrap();
+                        use std::io::Seek;
+                        log_file.rewind().unwrap();
+                        
+                        // 5. Reset the counter.
+                        req_since_snapshot = 0;
+                        println!("Compaction complete.");
                     }
-                */
-                    modified = false;
                 }
 
                 writer.write_all(response.as_bytes()).unwrap();
-                response=String::new();
+                response = String::new();
             }            
             "EXIT" if parts.len() == 2 && parts[1] == args.exit_code  => {
                 eprintln!("Received EXIT command with correct exit code. Exiting.");
